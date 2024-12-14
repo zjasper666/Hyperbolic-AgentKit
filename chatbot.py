@@ -179,9 +179,9 @@ class Colors:
     ENDC = "\033[0m"
     BOLD = "\033[1m"
 
-def print_user(text):
-    """Print user messages in blue."""
-    print(f"{Colors.BLUE}{Colors.BOLD}User: {Colors.ENDC}{text}")
+# def print_user(text):
+#     """Print user messages in blue."""
+#     print(f"\n{Colors.BLUE}{Colors.BOLD}User: {Colors.ENDC}{text}")
 
 def print_ai(text):
     """Print AI responses in green."""
@@ -228,34 +228,26 @@ def run_with_progress(func, *args, **kwargs):
     progress = ProgressIndicator()
     
     try:
-        # Start the progress animation
         progress.start()
-        
-        # Run the actual function and process chunks as they arrive
         generator = func(*args, **kwargs)
         chunks = []
         
         for chunk in generator:
-            # Stop the progress indicator before showing the chunk
             progress.stop()
             
-            # Process and show the chunk
             if "agent" in chunk:
-                print_ai(chunk["agent"]["messages"][0].content)
+                print(f"\n{Colors.GREEN}{chunk['agent']['messages'][0].content}{Colors.ENDC}")
             elif "tools" in chunk:
-                print_system(chunk["tools"]["messages"][0].content)
-            print_system("-------------------")
+                print(f"\n{Colors.YELLOW}{chunk['tools']['messages'][0].content}{Colors.ENDC}")
+            print(f"\n{Colors.YELLOW}-------------------{Colors.ENDC}")
             
-            # Collect the chunk
             chunks.append(chunk)
-            
-            # Restart the progress indicator for the next chunk
             progress.start()
         
         return chunks
     finally:
-        # Ensure the progress indicator is stopped
         progress.stop()
+
 
 def run_chat_mode(agent_executor, config):
     """Run the agent interactively based on user input."""
@@ -266,9 +258,13 @@ def run_chat_mode(agent_executor, config):
     
     while True:
         try:
-            user_input = input(f"\n{Colors.BLUE}{Colors.BOLD}User: {Colors.ENDC}").strip()
+            # Simple input handling without readline
+            prompt = f"{Colors.BLUE}{Colors.BOLD}User: {Colors.ENDC}"
+            user_input = input(prompt)
             
-            # Handle special commands
+            if not user_input:
+                continue
+            
             if user_input.lower() == "exit":
                 break
             elif user_input.lower() == "status":
@@ -278,13 +274,21 @@ def run_chat_mode(agent_executor, config):
             print_system(f"\nStarted at: {datetime.now().strftime('%H:%M:%S')}")
             
             try:
-                # Run agent with progress indicator - chunks will be shown as they arrive
-                run_with_progress(
-                    agent_executor.stream,
+                progress = ProgressIndicator()
+                progress.start()
+                
+                for chunk in agent_executor.stream(
                     {"messages": [HumanMessage(content=user_input)]},
                     config
-                )
+                ):
+                    progress.stop()
+                    if "agent" in chunk:
+                        print(f"{Colors.GREEN}{chunk['agent']['messages'][0].content}{Colors.ENDC}")
+                    elif "tools" in chunk:
+                        print(f"{Colors.YELLOW}{chunk['tools']['messages'][0].content}{Colors.ENDC}")
+                    progress.start()
                 
+                progress.stop()
                 print_system(f"Completed at: {datetime.now().strftime('%H:%M:%S')}")
                 
             except Exception as e:

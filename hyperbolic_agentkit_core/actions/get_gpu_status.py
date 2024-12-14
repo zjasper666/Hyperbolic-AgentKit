@@ -16,6 +16,7 @@ It does not take any inputs
 
 Important notes:
 - Authorization key is required for this operation
+- The GPU prices are in USD cents per hour
 """
 
 
