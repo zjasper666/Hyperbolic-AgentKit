@@ -52,6 +52,7 @@ class HyperbolicToolkit(BaseToolkit):
             rent_compute
             get_available_gpus
             get_gpu_status
+            ssh_access
 
     Use within an agent:
         .. code-block:: python

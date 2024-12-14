@@ -10,11 +10,15 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(current_dir)
 
 import time
+import threading
+import signal
+from datetime import datetime
 
 from langchain_core.messages import HumanMessage
 from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.prebuilt import create_react_agent
+from langchain_community.tools import DuckDuckGoSearchRun
 
 # Import CDP Agentkit Langchain Extension.
 from cdp_langchain.agent_toolkits import CdpToolkit
@@ -28,6 +32,7 @@ from hyperbolic_langchain.agent_toolkits import HyperbolicToolkit
 from hyperbolic_langchain.utils import HyperbolicAgentkitWrapper
 
 from twitter_langchain import (TwitterApiWrapper, TwitterToolkit)
+from hyperbolic_agentkit_core.actions.remote_shell import RemoteShellAction
 
 # Configure a file to persist the agent's CDP MPC Wallet Data.
 wallet_data_file = "wallet_data.txt"
@@ -72,7 +77,7 @@ def deploy_multi_token(wallet: Wallet, base_uri: str) -> str:
 def initialize_agent():
     """Initialize the agent with CDP Agentkit and Hyperbolic Agentkit."""
     # Initialize LLM.
-    llm = ChatOpenAI(model="gpt-4o-mini")
+    llm = ChatOpenAI(model="gpt-4o")
 
     wallet_data = None
 
@@ -106,17 +111,23 @@ def initialize_agent():
     twitter_toolkit = TwitterToolkit.from_twitter_api_wrapper(
         twitter_api_wrapper)
     tools.extend(twitter_toolkit.get_tools())
+    
     deployMultiTokenTool = CdpTool(
         name="deploy_multi_token",
         description=DEPLOY_MULTITOKEN_PROMPT,
-        cdp_agentkit_wrapper=
-        agentkit,  # this should be whatever the instantiation of CdpAgentkitWrapper is
+        cdp_agentkit_wrapper=agentkit,
         args_schema=DeployMultiTokenInput,
         func=deploy_multi_token,
     )
 
-    # Add to tools list
-    tools.append(deployMultiTokenTool)
+    # Add additional tools
+    tools.extend([
+        deployMultiTokenTool,
+        DuckDuckGoSearchRun(
+            name="web_search",
+            description="Search the internet for current information. Use this when you need to find up-to-date information or verify facts."
+        )
+    ])
 
     # Store buffered conversation history in memory.
     memory = MemorySaver()
@@ -128,14 +139,166 @@ def initialize_agent():
         tools=tools,
         checkpointer=memory,
         state_modifier=
-        """You are a helpful agent that can interact with both the Coinbase Developer Platform and Hyperbolic Platform.
-        For CDP operations, you can interact onchain. If you ever need funds, you can request them from the faucet if you are on network ID `base-sepolia`.
-        For Hyperbolic operations, you can rent compute resources, check GPU status, and manage compute infrastructure.
-        If someone asks you to do something you can't do with your currently available tools, you must say so, and encourage them to:
-        - For CDP: implement it themselves using the CDP SDK + Agentkit, recommend they go to docs.cdp.coinbase.com
-        - For Hyperbolic: implement it themselves using the Hyperbolic SDK, recommend they go to docs.hyperbolic.xyz
-        Be concise and helpful with your responses. Refrain from restating your tools' descriptions unless it is explicitly requested.""",
+        """You are a helpful agent that can interact with multiple platforms and services:
+
+        1. Blockchain Operations (via CDP):
+        - Interact onchain via Coinbase Developer Platform
+        - Deploy tokens and manage wallets
+        - Request funds from faucet on network ID `base-sepolia`
+
+        2. Compute Operations (via Hyperbolic):
+        - Rent compute resources
+        - Check GPU status and availability
+        - Manage compute infrastructure
+        - Connect to remote servers via SSH (use ssh_connect)
+        - Execute commands on remote server (use remote_shell)
+
+        3. System Operations:
+        - Use 'ssh_status' to check current SSH connection
+        - Search the internet for current information
+        - Post updates on X (Twitter)
+
+        If asked about something beyond your tools' capabilities, guide users to:
+        - CDP: docs.cdp.coinbase.com
+        - Hyperbolic: docs.hyperbolic.xyz
+
+        Be concise and helpful. Only describe your tools when explicitly asked.""",
     ), config
+
+
+class CommandTimeout(Exception):
+    """Exception raised when a command execution times out."""
+    pass
+
+# ANSI color codes
+class Colors:
+    BLUE = "\033[94m"
+    GREEN = "\033[92m"
+    YELLOW = "\033[93m"
+    RED = "\033[91m"
+    ENDC = "\033[0m"
+    BOLD = "\033[1m"
+
+def print_user(text):
+    """Print user messages in blue."""
+    print(f"{Colors.BLUE}{Colors.BOLD}User: {Colors.ENDC}{text}")
+
+def print_ai(text):
+    """Print AI responses in green."""
+    print(f"{Colors.GREEN}{text}{Colors.ENDC}")
+
+def print_system(text):
+    """Print system messages in yellow."""
+    print(f"{Colors.YELLOW}{text}{Colors.ENDC}")
+
+def print_error(text):
+    """Print error messages in red."""
+    print(f"{Colors.RED}{text}{Colors.ENDC}")
+
+class ProgressIndicator:
+    def __init__(self):
+        self.animation = "▁▂▃▄▅▆▇█▇▆▅▄▃▂▁"
+        self.idx = 0
+        self._stop_event = threading.Event()
+        self._thread = None
+        
+    def _animate(self):
+        """Animation loop running in separate thread."""
+        while not self._stop_event.is_set():
+            print(f"\r{Colors.YELLOW}Processing {self.animation[self.idx]}{Colors.ENDC}", end="", flush=True)
+            self.idx = (self.idx + 1) % len(self.animation)
+            time.sleep(0.2)  # Update every 0.2 seconds
+            
+    def start(self):
+        """Start the progress animation in a separate thread."""
+        self._stop_event.clear()
+        self._thread = threading.Thread(target=self._animate)
+        self._thread.daemon = True
+        self._thread.start()
+        
+    def stop(self):
+        """Stop the progress animation."""
+        if self._thread and self._thread.is_alive():
+            self._stop_event.set()
+            self._thread.join()
+            print("\r" + " " * 50 + "\r", end="", flush=True)  # Clear the line
+
+def run_with_progress(func, *args, **kwargs):
+    """Run a function while showing a progress indicator."""
+    progress = ProgressIndicator()
+    
+    try:
+        # Start the progress animation
+        progress.start()
+        
+        # Run the actual function and process chunks as they arrive
+        generator = func(*args, **kwargs)
+        chunks = []
+        
+        for chunk in generator:
+            # Stop the progress indicator before showing the chunk
+            progress.stop()
+            
+            # Process and show the chunk
+            if "agent" in chunk:
+                print_ai(chunk["agent"]["messages"][0].content)
+            elif "tools" in chunk:
+                print_system(chunk["tools"]["messages"][0].content)
+            print_system("-------------------")
+            
+            # Collect the chunk
+            chunks.append(chunk)
+            
+            # Restart the progress indicator for the next chunk
+            progress.start()
+        
+        return chunks
+    finally:
+        # Ensure the progress indicator is stopped
+        progress.stop()
+
+def run_chat_mode(agent_executor, config):
+    """Run the agent interactively based on user input."""
+    print_system("Starting chat mode... Type 'exit' to end.")
+    print_system("Commands:")
+    print_system("  exit     - Exit the chat")
+    print_system("  status   - Check if agent is responsive")
+    
+    while True:
+        try:
+            user_input = input(f"\n{Colors.BLUE}{Colors.BOLD}User: {Colors.ENDC}").strip()
+            
+            # Handle special commands
+            if user_input.lower() == "exit":
+                break
+            elif user_input.lower() == "status":
+                print_system("Agent is responsive and ready for commands.")
+                continue
+            
+            print_system(f"\nStarted at: {datetime.now().strftime('%H:%M:%S')}")
+            
+            try:
+                # Run agent with progress indicator - chunks will be shown as they arrive
+                run_with_progress(
+                    agent_executor.stream,
+                    {"messages": [HumanMessage(content=user_input)]},
+                    config
+                )
+                
+                print_system(f"Completed at: {datetime.now().strftime('%H:%M:%S')}")
+                
+            except Exception as e:
+                print_error(f"\nError: {str(e)}")
+                print_system("The agent encountered an error but is still running.")
+            
+        except KeyboardInterrupt:
+            print_system("\nOperation interrupted by user")
+            choice = input(f"{Colors.YELLOW}Do you want to exit? (y/N): {Colors.ENDC}")
+            if choice.lower() == 'y':
+                print_system("Goodbye Agent!")
+                sys.exit(0)
+            print_system("Continuing...")
+            continue
 
 
 # Autonomous Mode
@@ -161,30 +324,6 @@ def run_autonomous_mode(agent_executor, config, interval=10):
 
             # Wait before the next action
             time.sleep(interval)
-
-        except KeyboardInterrupt:
-            print("Goodbye Agent!")
-            sys.exit(0)
-
-
-# Chat Mode
-def run_chat_mode(agent_executor, config):
-    """Run the agent interactively based on user input."""
-    print("Starting chat mode... Type 'exit' to end.")
-    while True:
-        try:
-            user_input = input("\nUser: ")
-            if user_input.lower() == "exit":
-                break
-
-            # Run agent with the user's input in chat mode
-            for chunk in agent_executor.stream(
-                {"messages": [HumanMessage(content=user_input)]}, config):
-                if "agent" in chunk:
-                    print(chunk["agent"]["messages"][0].content)
-                elif "tools" in chunk:
-                    print(chunk["tools"]["messages"][0].content)
-                print("-------------------")
 
         except KeyboardInterrupt:
             print("Goodbye Agent!")

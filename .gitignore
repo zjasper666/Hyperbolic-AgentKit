@@ -43,6 +43,12 @@ ENV/
 ehthumbs.db
 Thumbs.db
 
+# SSH Keys
+id_rsa
+id_rsa.pub
+*.pem
+*.key
+
 # Project specific
 wallet_data.txt
 .replit

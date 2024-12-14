@@ -9,8 +9,8 @@ from pydantic import BaseModel, Field
 from hyperbolic_agentkit_core.actions.hyperbolic_action import HyperbolicAction
 from hyperbolic_agentkit_core.actions.utils import get_api_key
 
-RENT_COMPUTE_PROMPT = """
-This tool will get all the available GPUs on the Hyperbolic platform
+GET_AVAILABLE_GPUS_PROMPT = """
+This tool will get all the available GPUs on the Hyperbolic platform.
 
 It does not take any following inputs
 
@@ -46,6 +46,6 @@ class GetAvailableGpusAction(HyperbolicAction):
   """Get available GPUs action."""
 
   name: str = "get_available_gpus"
-  description: str = RENT_COMPUTE_PROMPT
+  description: str = GET_AVAILABLE_GPUS_PROMPT
   args_schema: type[BaseModel] | None = GetAvailableGpusInput
   func: Callable[..., str] = get_available_gpus

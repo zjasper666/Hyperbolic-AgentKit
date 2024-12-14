@@ -10,7 +10,7 @@ from hyperbolic_agentkit_core.actions.hyperbolic_action import HyperbolicAction
 from hyperbolic_agentkit_core.actions.utils import get_api_key
 
 GET_GPU_STATUS_PROMPT = """
-This tool will get all the the status of my currently rented GPUs on the Hyperbolic platform
+This tool will get all the the status and ssh commands of my currently rented GPUs on the Hyperbolic platform.
 
 It does not take any inputs
 

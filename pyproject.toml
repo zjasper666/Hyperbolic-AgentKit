@@ -17,6 +17,10 @@ pydantic = "^2.9.2"
 cdp-sdk = "^0.12.0"
 twitter-langchain = "^0.0.6"
 python-dotenv = "^1.0.0"
+langchain-community = "^0.3.11"
+langchain-experimental = "^0.3.3"
+paramiko = "^3.4.0"
+duckduckgo-search = "^6.4.1"
 
 [build-system]
 requires = ["poetry-core"]
