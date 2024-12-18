@@ -134,12 +134,12 @@ def initialize_agent():
     config = {"configurable": {"thread_id": "CDP and Hyperbolic Agentkit Chatbot Example!"}}
 
     # Create ReAct Agent using the LLM and all tools.
-    return create_react_agent(
-        llm,
-        tools=tools,
-        checkpointer=memory,
-        state_modifier=
-        """You are a helpful agent that can interact with multiple platforms and services:
+    return (
+        create_react_agent(
+            llm,
+            tools=tools,
+            checkpointer=memory,
+            state_modifier="""You are a helpful agent that can interact with multiple platforms and services:
 
         1. Blockchain Operations (via CDP):
         - Interact onchain via Coinbase Developer Platform
@@ -152,6 +152,7 @@ def initialize_agent():
         - Manage compute infrastructure
         - Connect to remote servers via SSH (use ssh_connect)
         - Execute commands on remote server (use remote_shell)
+        - Spin up an ethereum snap node on remote server
 
         3. System Operations:
         - Use 'ssh_status' to check current SSH connection
@@ -163,7 +164,9 @@ def initialize_agent():
         - Hyperbolic: docs.hyperbolic.xyz
 
         Be concise and helpful. Only describe your tools when explicitly asked.""",
-    ), config
+        ),
+        config,
+    )
 
 
 class CommandTimeout(Exception):
